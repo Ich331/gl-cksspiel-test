@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gewinnspiel (nuka's lotto)</title>
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --accent:#06b6d4; --muted:#94a3b8; --good:#16a34a; --bad:#ef4444; --player:#2563eb; --glass: rgba(255,255,255,0.03);
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#071025 0%,#051226 100%);color:#e6eef6}
+    .container{max-width:980px;margin:28px auto;padding:24px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .meta{margin-left:auto;text-align:right}
+    .meta .coins{font-weight:700;color:var(--accent)}
+    .controls{display:flex;gap:12px;align-items:center;margin-bottom:14px}
+    .controls input[type=number]{width:88px;padding:8px;border-radius:8px;border:1px solid #142433;background:var(--card);color:inherit}
+    .controls button{background:var(--accent);border:none;color:#012; padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:600}
+    .controls button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.05);color:var(--muted)}
+    .board{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;background:var(--glass);padding:14px;border-radius:10px;width:520px;margin:0 auto}
+    .cell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border-radius:8px;background:linear-gradient(180deg,#071026 0%,#08172a 100%);cursor:pointer;user-select:none;border:1px solid rgba(255,255,255,0.03);position:relative;transition:transform .12s ease, box-shadow .12s ease}
+    .cell:hover{transform:translateY(-4px);box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+    .cell .num{position:absolute;top:8px;left:10px;font-size:12px;color:var(--muted)}
+    .cell .mark{font-size:36px;line-height:1;font-weight:700}
+    .cell.empty{background:linear-gradient(180deg,#081226,#071126)}
+    .cell.player{background:linear-gradient(180deg,#0f2b6b,#0b254f);box-shadow:0 6px 18px rgba(37,99,235,0.12)}
+    .cell.comp{background:linear-gradient(180deg,#3b0f19,#2b0b12);box-shadow:0 6px 18px rgba(239,68,68,0.08)}
+    .cell.comp-win{background:linear-gradient(180deg,#083916,#052b0f);box-shadow:0 6px 18px rgba(22,163,74,0.08)}
+    .legend{display:flex;gap:10px;align-items:center;margin-top:12px}
+    .legend .item{display:flex;gap:8px;align-items:center;color:var(--muted)}
+    .legend .dot{width:14px;height:14px;border-radius:4px}
+    .msg{margin-top:12px;color:var(--muted);min-height:20px}
+    footer{display:flex;justify-content:space-between;align-items:center;margin-top:16px}
+    .btn{Padding:8px 12px;border-radius:8px;border:none;background:#0ea5a3;color:#012;cursor:pointer;font-weight:700}
+    .small{font-size:13px;color:var(--muted)}
+
+    /* Settings Modal */
+    .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
+    .modal.open{display:flex}
+    .modal-content{background:var(--card);border-radius:10px;padding:18px;max-width:420px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.04)}
+    .modal-content h2{margin:0 0 12px 0;font-size:18px}
+    .modal-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02)}
+    .modal-row:last-child{border-bottom:0}
+    .modal-left{display:flex;flex-direction:column}
+    .modal-controls{display:flex;gap:8px;align-items:center}
+    .modal .small{color:var(--muted);margin-top:6px}
+    .modal-buttons{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}
+    .modal .btn{padding:8px 12px;border-radius:8px}
+
+    /* Icons & animations */
+    .mark svg{width:42px;height:42px;display:block}
+    .cell.animate-pop{animation:pop .26s ease forwards}
+    @keyframes pop{0%{transform:scale(0.85);opacity:0.0}50%{transform:scale(1.05);opacity:1}100%{transform:scale(1);opacity:1}}
+    .cell.highlight{box-shadow:0 8px 28px rgba(8,200,150,0.14);outline:2px solid rgba(8,200,150,0.08);animation:pulse 1.1s ease-in-out infinite}
+    @keyframes pulse{0%{transform:translateY(0)}50%{transform:translateY(-6px)}100%{transform:translateY(0)}}
+
+    /* Responsive / touch friendly */
+    @media (max-width:720px){
+      .container{margin:12px;padding:16px;border-radius:10px}
+      .controls{flex-wrap:wrap;gap:8px}
+      .controls input[type=number]{width:72px}
+      .controls button{padding:10px 14px;font-size:15px}
+      .board{width:100%;gap:8px;padding:10px}
+      .cell{border-radius:10px;font-size:18px}
+      .cell .mark{font-size:28px}
+      .cell .num{top:6px;left:8px;font-size:11px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Gewinnspiel — Browser Version</h1>
+        <div class="small">Klicke Felder, kaufe Felder (5 coins / Feld). Computer zieht 8 Zahlen.</div>
+      </div>
+      <div class="meta">
+        <div class="small">Deine Coins</div>
+        <div class="coins" id="coins">50</div>
+      </div>
+    </header>
+
+    <div class="controls">
+      <div class="small">Wähle beliebig viele Felder durch Anklicken. Klicke danach auf "Bestätigen & Ziehen".</div>
+      <button id="confirmSelection">Bestätigen & Ziehen</button>
+      <button id="clearSelection" class="secondary">Auswahl löschen</button>
+      <button id="resetBtn" class="secondary">Neustart</button>
+      <button id="settingsBtn" class="secondary">⚙ Einstellungen</button>
+      <button id="nextBtn" class="secondary" style="display:none">Weiter</button>
+    </div>
+
+    <div class="board" id="board"></div>
+
+    <div class="legend">
+      <div class="item"><div class="dot" style="background:var(--player)"></div> Spieler (X)</div>
+      <div class="item"><div class="dot" style="background:var(--bad)"></div> Computer (O)</div>
+      <div class="item"><div class="dot" style="background:var(--good)"></div> Computer + Spieler Treffer</div>
+    </div>
+
+    <div class="msg" id="message">Spiel startet mit 50 coins.</div>
+
+    <!-- Settings Modal -->
+    <div class="modal" id="settingsModal" aria-hidden="true">
+      <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <h2 id="settingsTitle">Einstellungen</h2>
+
+        <div class="modal-row">
+          <div class="modal-left">
+            <strong>Auto-Weiter</strong>
+            <div class="small">Automatisch zur nächsten Runde springen, ohne auf "Weiter" zu klicken.</div>
+          </div>
+          <div class="modal-controls">
+            <input type="checkbox" id="autoAdvanceToggle" />
+          </div>
+        </div>
+
+        <div class="modal-row" id="autoAdvanceTimeDiv">
+          <div class="modal-left">
+            <div class="small">Wartezeit bis Auto-Weiter</div>
+          </div>
+          <div style="width:160px;display:flex;flex-direction:column;align-items:flex-end;">
+            <div style="font-size:13px;color:var(--muted)" id="autoAdvanceTimeDisplay">3 s</div>
+            <input type="range" id="autoAdvanceTime" min="1" max="10" value="3" step="1" />
+          </div>
+        </div>
+
+        <div class="modal-row">
+          <div class="modal-left">
+            <strong>Auto-Bestätigung</strong>
+            <div class="small">Wählt automatisch "Bestätigen", wenn du nach Auswahl inaktiv bist.</div>
+          </div>
+          <div class="modal-controls">
+            <input type="checkbox" id="autoConfirmToggle" />
+          </div>
+        </div>
+
+        <div class="modal-row" id="autoConfirmTimeDiv">
+          <div class="modal-left">
+            <div class="small">Wartezeit bis Auto-Bestätigung</div>
+          </div>
+          <div style="width:160px;display:flex;flex-direction:column;align-items:flex-end;">
+            <div style="font-size:13px;color:var(--muted)" id="autoConfirmTimeDisplay">5 s</div>
+            <input type="range" id="autoConfirmTime" min="2" max="10" value="5" step="1" />
+          </div>
+        </div>
+
+        <div class="modal-buttons">
+          <button id="settingsReset" class="btn secondary">Zurücksetzen</button>
+          <button id="settingsClose" class="btn">Schließen</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="small">Treffer: +10 coins pro getroffenes Feld</div>
+      <div class="small">Jackpots: 4 O -> 40 * (#X in Linie) | 5 O -> 100 * (#X in Linie)</div>
+    </footer>
+  </div>
+
+  <script>
+    // Clean, working implementation of the game logic.
+    const START_COINS = 50;
+    const COST_PER_FIELD = 5;
+    const DRAW_COUNT = 8; // wie im Python-Code
+    let coins = START_COINS;
+
+    // Board as objects with status: 'free'|'player'|'comp'|'comp-win'
+    const board = [];
+    const boardEl = document.getElementById('board');
+    const coinsEl = document.getElementById('coins');
+    const messageEl = document.getElementById('message');
+
+    const confirmBtn = document.getElementById('confirmSelection');
+    const clearBtn = document.getElementById('clearSelection');
+    const resetBtn = document.getElementById('resetBtn');
+    const nextBtn = document.getElementById('nextBtn');
+
+    let selecting = true; // player may select fields
+    let lastDrawn = []; // indices (0-based) the computer drew in the last round
+    let isMouseDown = false;
+    let autoAdvanceTimer = null; // timer for auto-advance after draw
+    // Settings-controlled timers & flags
+    let autoAdvanceEnabled = true; // default: auto-advance active
+    let autoAdvanceDuration = 3; // seconds default
+    let autoConfirmEnabled = false; // default: auto-confirm off
+    let autoConfirmDuration = 5; // seconds default
+    let autoConfirmTimer = null;
+    const X_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><g stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M4 4l16 16"></path><path d="M20 4L4 20"></path></g></svg>`;
+
+    // Settings DOM bindings
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsModal = document.getElementById('settingsModal');
+    const settingsClose = document.getElementById('settingsClose');
+    const settingsReset = document.getElementById('settingsReset');
+
+    const autoAdvanceToggle = document.getElementById('autoAdvanceToggle');
+    const autoAdvanceTime = document.getElementById('autoAdvanceTime');
+    const autoAdvanceTimeDiv = document.getElementById('autoAdvanceTimeDiv');
+    const autoAdvanceTimeDisplay = document.getElementById('autoAdvanceTimeDisplay');
+
+    const autoConfirmToggle = document.getElementById('autoConfirmToggle');
+    const autoConfirmTime = document.getElementById('autoConfirmTime');
+    const autoConfirmTimeDiv = document.getElementById('autoConfirmTimeDiv');
+    const autoConfirmTimeDisplay = document.getElementById('autoConfirmTimeDisplay');
+
+    // initialize settings UI
+    if(autoAdvanceToggle){ autoAdvanceToggle.checked = !!autoAdvanceEnabled; autoAdvanceTime.value = autoAdvanceDuration; autoAdvanceTimeDisplay.textContent = autoAdvanceDuration + ' s'; autoAdvanceTimeDiv.style.display = autoAdvanceEnabled ? 'flex' : 'none'; }
+    if(autoConfirmToggle){ autoConfirmToggle.checked = !!autoConfirmEnabled; autoConfirmTime.value = autoConfirmDuration; autoConfirmTimeDisplay.textContent = autoConfirmDuration + ' s'; autoConfirmTimeDiv.style.display = autoConfirmEnabled ? 'flex' : 'none'; }
+
+    // settings behaviors
+    if(settingsBtn) settingsBtn.addEventListener('click', ()=>{ settingsModal.classList.add('open'); settingsModal.setAttribute('aria-hidden','false'); });
+    if(settingsClose) settingsClose.addEventListener('click', ()=>{ settingsModal.classList.remove('open'); settingsModal.setAttribute('aria-hidden','true'); });
+    if(settingsReset) settingsReset.addEventListener('click', ()=>{
+      // restore defaults
+      autoAdvanceEnabled = true; autoAdvanceDuration = 3; autoConfirmEnabled = false; autoConfirmDuration = 5;
+      if(autoAdvanceToggle) autoAdvanceToggle.checked = true; if(autoAdvanceTime) autoAdvanceTime.value = 3; if(autoAdvanceTimeDisplay) autoAdvanceTimeDisplay.textContent = '3 s'; if(autoAdvanceTimeDiv) autoAdvanceTimeDiv.style.display = 'flex';
+      if(autoConfirmToggle) autoConfirmToggle.checked = false; if(autoConfirmTime) autoConfirmTime.value = 5; if(autoConfirmTimeDisplay) autoConfirmTimeDisplay.textContent = '5 s'; if(autoConfirmTimeDiv) autoConfirmTimeDiv.style.display = 'none';
+      clearTimeout(autoConfirmTimer); autoConfirmTimer = null;
+    });
+
+    if(autoAdvanceToggle) autoAdvanceToggle.addEventListener('change', ()=>{ autoAdvanceEnabled = autoAdvanceToggle.checked; autoAdvanceTimeDiv.style.display = autoAdvanceEnabled ? 'flex' : 'none'; });
+    if(autoAdvanceTime) autoAdvanceTime.addEventListener('input', ()=>{ autoAdvanceDuration = Number(autoAdvanceTime.value); autoAdvanceTimeDisplay.textContent = autoAdvanceDuration + ' s'; });
+
+    if(autoConfirmToggle) autoConfirmToggle.addEventListener('change', ()=>{ autoConfirmEnabled = autoConfirmToggle.checked; autoConfirmTimeDiv.style.display = autoConfirmEnabled ? 'flex' : 'none'; if(!autoConfirmEnabled){ clearTimeout(autoConfirmTimer); autoConfirmTimer = null; } });
+    if(autoConfirmTime) autoConfirmTime.addEventListener('input', ()=>{ autoConfirmDuration = Number(autoConfirmTime.value); autoConfirmTimeDisplay.textContent = autoConfirmDuration + ' s'; });
+
+    // start/reset the auto-confirm timer when selection changes
+    function resetAutoConfirmTimer(){
+      clearTimeout(autoConfirmTimer);
+      if(!autoConfirmEnabled || !selecting) return;
+      if(getPlayerCount() === 0) return;
+      autoConfirmTimer = setTimeout(()=>{
+        if(selecting && getPlayerCount() > 0){
+          clearTimeout(autoConfirmTimer); autoConfirmTimer = null; confirmBtn.click();
+        }
+      }, autoConfirmDuration * 1000);
+    }
+
+    function initBoard(){
+      board.length = 0;
+      for(let i=1;i<=25;i++) board.push({n:i, status:'free', matched:false});
+      renderBoard();
+    }
+
+    function renderBoard(){
+      boardEl.innerHTML = '';
+      board.forEach((cell, idx) => {
+        const el = document.createElement('div');
+        el.className = 'cell ' + (cell.status === 'free' ? 'empty' : cell.status);
+        el.dataset.index = idx;
+
+        const num = document.createElement('div'); num.className='num'; num.textContent = cell.n;
+        const mark = document.createElement('div'); mark.className='mark';
+
+        if(cell.status === 'player'){
+          mark.innerHTML = X_SVG;
+        } else if(cell.status === 'comp' || cell.status === 'comp-win'){
+          mark.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="white" stroke-width="2"/></svg>`;
+        } else {
+          mark.innerHTML = '';
+        }
+
+        el.appendChild(num); el.appendChild(mark);
+
+        // click to toggle single selection
+        el.addEventListener('click', ()=> onCellClick(idx));
+
+        // mouse drag selection: while mouse is down, moving over cells selects them
+        el.addEventListener('mouseenter', (e)=>{
+          if(isMouseDown && selecting){ setCellToPlayer(idx); }
+        });
+
+        // touch-friendly: tap toggles selection (allow deselect on mobile), touchmove selects while dragging
+        el.addEventListener('touchstart', (e)=>{ if(!selecting) return; e.preventDefault(); onCellClick(idx); });
+        el.addEventListener('touchmove', (e)=>{
+          if(!selecting) return; e.preventDefault(); const t = e.touches[0]; const target = document.elementFromPoint(t.clientX, t.clientY); if(target){ const cellEl = target.closest('.cell'); if(cellEl) setCellToPlayer(Number(cellEl.dataset.index)); }
+        }, {passive:false});
+
+        boardEl.appendChild(el);
+      });
+    }
+
+    function setCellToPlayer(idx){
+      const cell = board[idx];
+      if(!cell) return;
+      if(cell.status === 'free'){
+        const current = getPlayerCount();
+        const maxAllowed = getMaxSelectableFields();
+        if(current >= maxAllowed) return;
+        cell.status = 'player';
+        const el = boardEl.querySelector(`[data-index='${idx}']`);
+        if(el){ el.className = 'cell player'; const mark = el.querySelector('.mark'); if(mark) mark.innerHTML = X_SVG; }
+        // reset auto-confirm countdown on any selection change
+        resetAutoConfirmTimer();
+      }
+    }
+
+    function onCellClick(idx){
+      if(!selecting){ showMessage('Runde läuft — warte bis der Computer gezogen hat.'); return; }
+      const cell = board[idx];
+      const maxAllowed = getMaxSelectableFields();
+      const current = getPlayerCount();
+      if(cell.status === 'free'){
+        if(current < maxAllowed) cell.status = 'player';
+      } else if(cell.status === 'player'){
+        cell.status = 'free';
+      }
+      renderBoard();
+      // reset auto-confirm timer when user actively toggles a cell
+      resetAutoConfirmTimer();
+    }
+
+    function getPlayerCount(){ return board.filter(c => c.status === 'player').length; }
+    function getMaxSelectableFields(){ return Math.floor(coins / COST_PER_FIELD); }
+    function showMessage(txt){ messageEl.textContent = txt; }
+    function updateCoins(){ coinsEl.textContent = coins; }
+
+    function checkGameOver(){
+      if(coins <= 0){
+        showMessage('Verloren — Neues Spiel startet...');
+        setTimeout(()=>{
+          coins = START_COINS; updateCoins(); initBoard(); selecting = true; nextBtn.style.display = 'none';
+        }, 1200);
+      }
+    }
+
+    confirmBtn.addEventListener('click', ()=>{
+      // stop auto-confirm if active
+      clearTimeout(autoConfirmTimer); autoConfirmTimer = null;
+      if(!selecting){ showMessage('Warte bis die Runde vorbei ist.'); return; }
+      const selected = getPlayerCount();
+      if(selected === 0){ showMessage('Wähle mindestens ein Feld bevor du bestätigst.'); return; }
+      const cost = selected * COST_PER_FIELD;
+      if(cost > coins){ showMessage(`Nicht genug coins. Du hast ${coins}, benötigst ${cost}.`); return; }
+
+      // pay and lock
+      coins -= cost; updateCoins(); selecting = false; renderBoard();
+      showMessage('Auswahl bestätigt — der Computer zieht...');
+
+      // draw
+      const pool = Array.from({length:25},(_,i)=>i+1);
+      const drawn = sample(pool, DRAW_COUNT);
+      const drawnIndices = [];
+      drawn.forEach(num => {
+        const idx = num - 1; drawnIndices.push(idx);
+        const cell = board[idx];
+        if(cell.status === 'player'){ coins += 10; cell.status = 'comp-win'; cell.matched = true; }
+        else if(cell.status === 'free'){ cell.status = 'comp'; }
+      });
+      // store drawn indices so jackpotPruefen can check which exact positions the computer chose
+      lastDrawn = drawnIndices.slice();
+
+      updateCoins(); renderBoard();
+
+      // animate drawn
+      drawnIndices.forEach(i => {
+        const el = boardEl.querySelector(`[data-index='${i}']`);
+        if(el){ el.classList.add('animate-pop'); setTimeout(()=>el.classList.remove('animate-pop'), 420); }
+      });
+
+      showMessage('Der Computer hat gezogen: ' + drawn.join(', '));
+      jackpotPruefen();
+      checkGameOver();
+
+      // Show the 'Weiter' button and wait for user to continue
+      nextBtn.style.display = 'inline-block';
+      nextBtn.disabled = false;
+
+      // Auto-advance after configured time (only if enabled). Cancel if user clicks board or 'Weiter'
+      if(autoAdvanceEnabled){
+        autoAdvanceTimer = setTimeout(()=>{ nextBtn.click(); }, autoAdvanceDuration * 1000);
+
+        // Cancel auto-advance if user clicks on the board
+        boardEl.addEventListener('click', function cancelAutoAdvance(){
+          clearTimeout(autoAdvanceTimer);
+          boardEl.removeEventListener('click', cancelAutoAdvance);
+        }, {once: true});
+      } else {
+        autoAdvanceTimer = null;
+      }
+    });
+
+    clearBtn.addEventListener('click', ()=>{
+      board.forEach(c => { if(c.status === 'player') c.status = 'free'; }); renderBoard(); showMessage('Auswahl gelöscht.');
+      clearTimeout(autoConfirmTimer); autoConfirmTimer = null;
+    });
+
+    resetBtn.addEventListener('click', ()=>{
+      coins = START_COINS; updateCoins(); initBoard(); selecting = true; showMessage('Neues Spiel gestartet.');
+    });
+
+    // Continue to next round: hide button, reset board and allow selection
+    nextBtn.addEventListener('click', ()=>{
+      clearTimeout(autoAdvanceTimer);
+      nextBtn.style.display = 'none';
+      initBoard(); selecting = true; showMessage('Neue Runde: Wähle Felder und bestätige.');
+    });
+
+    function sample(arr, k){ const copy = arr.slice(); const out = []; for(let i=0;i<k && copy.length;i++){ const j = Math.floor(Math.random()*copy.length); out.push(copy.splice(j,1)[0]); } return out; }
+
+    function jackpotPruefen(){
+      // Build all lines of interest dynamically: all full rows, full cols,
+      // and all diagonals (both directions) with length >= 4.
+      const lines = [];
+
+      // rows
+      for(let r=0;r<5;r++){
+        const row = [];
+        for(let c=0;c<5;c++) row.push(r*5 + c);
+        lines.push(row);
+      }
+
+      // cols
+      for(let c=0;c<5;c++){
+        const col = [];
+        for(let r=0;r<5;r++) col.push(r*5 + c);
+        lines.push(col);
+      }
+
+      // diagonals NW->SE (dr=1,dc=1) and NE->SW (dr=1,dc=-1)
+      function collectDiagonals(dr, dc){
+        const starts = [];
+        // start positions: top row and left/right column
+        for(let c=0;c<5;c++) starts.push([0,c]);
+        for(let r=1;r<5;r++) starts.push([r, dc===1 ? 0 : 4]);
+
+        starts.forEach(([sr,sc])=>{
+          const diag = [];
+          let r = sr, c = sc;
+          while(r>=0 && r<5 && c>=0 && c<5){ diag.push(r*5 + c); r += dr; c += dc; }
+          if(diag.length >= 4) lines.push(diag);
+        });
+      }
+
+      collectDiagonals(1,1);  // NW->SE
+      collectDiagonals(1,-1); // NE->SW
+
+      // Treat both 'player' and 'comp-win' as player-picked cells
+      function is_player(cell){ return cell && (cell.status === 'player' || cell.status === 'comp-win'); }
+
+      const usedPlayerIndices = new Set();
+      const payoutTable = {4:40,5:100};
+
+      const lastDrawnSet = new Set(lastDrawn || []);
+
+      // For each line (which may be length 4 or 5) check how many of its positions the computer drew
+      lines.forEach(line => {
+        const lineDrawn = line.filter(i => lastDrawnSet.has(i));
+        const comp_count = lineDrawn.length;
+        if(!payoutTable[comp_count]) return; // only care about 4 or 5
+
+        // If comp_count === 4, require those drawn positions to be contiguous within the line
+        if(comp_count === 4){
+          const positions = lineDrawn.map(i => line.indexOf(i)).sort((a,b)=>a-b);
+          let contiguous = true;
+          for(let j=1;j<positions.length;j++){
+            if(positions[j] !== positions[j-1] + 1){ contiguous = false; break; }
+          }
+          if(!contiguous) return;
+        }
+
+        // Reward only player cells that are on the exact computer‑chosen fields
+        const playerIndicesInDrawn = lineDrawn.filter(i => is_player(board[i]) && !usedPlayerIndices.has(i));
+        const player_in_line = playerIndicesInDrawn.length;
+        if(player_in_line <= 0) return;
+
+        const multiplier = payoutTable[comp_count];
+        const gain = multiplier * player_in_line;
+        coins += gain; updateCoins();
+        const label = comp_count === 5 ? 'Super Jackpot' : 'Jackpot (4 zusammenhängend)';
+        showMessage((messageEl.textContent || '') + `\n${label}! Du hast ${gain} coins gewonnen!`);
+
+        playerIndicesInDrawn.forEach(i => usedPlayerIndices.add(i));
+        highlightLine(playerIndicesInDrawn);
+      });
+    }
+
+    function highlightLine(line){
+      line.forEach(i => { const el = boardEl.querySelector(`[data-index='${i}']`); if(el) el.classList.add('highlight'); });
+      setTimeout(()=>{ line.forEach(i => { const el = boardEl.querySelector(`[data-index='${i}']`); if(el) el.classList.remove('highlight'); }); }, 1600);
+    }
+
+    // Dev helper: force a specific draw from the console for testing.
+    // Usage in browser console: `forceDraw([22,18,14,10])` (1-based numbers)
+    window.forceDraw = function(nums){
+      if(!Array.isArray(nums)) return;
+      const drawnIndices = nums.map(n => (n - 1)).filter(i => i >= 0 && i < 25);
+      lastDrawn = drawnIndices.slice();
+      drawnIndices.forEach(idx => {
+        const cell = board[idx];
+        if(!cell) return;
+        if(cell.status === 'player'){ coins += 10; cell.status = 'comp-win'; cell.matched = true; }
+        else if(cell.status === 'free'){ cell.status = 'comp'; }
+      });
+      updateCoins(); renderBoard();
+      drawnIndices.forEach(i => { const el = boardEl.querySelector(`[data-index='${i}']`); if(el){ el.classList.add('animate-pop'); setTimeout(()=>el.classList.remove('animate-pop'), 420); } });
+      showMessage('Dev forced draw: ' + nums.join(', '));
+      jackpotPruefen();
+      nextBtn.style.display = 'inline-block';
+    };
+
+    // Mouse drag handling: set isMouseDown while pressing on board
+    // Also select the cell under the cursor immediately on mousedown
+    boardEl.addEventListener('mousedown', (e)=>{
+      if(!selecting) return;
+      // only react to left button presses
+      if(e.button !== undefined && e.button !== 0) return;
+      isMouseDown = true; e.preventDefault();
+      const cellEl = e.target.closest && e.target.closest('.cell');
+      if(cellEl){ const idx = Number(cellEl.dataset.index); if(!Number.isNaN(idx)) setCellToPlayer(idx); }
+    });
+    window.addEventListener('mouseup', ()=>{ isMouseDown = false; });
+    boardEl.addEventListener('dragstart', (e)=> e.preventDefault());
+
+    // init
+    initBoard(); updateCoins();
+  </script>
+</body>
+</html>
