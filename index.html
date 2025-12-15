@@ -48,6 +48,21 @@
     .modal-buttons{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}
     .modal .btn{padding:8px 12px;border-radius:8px}
 
+    /* Jackpot line animation */
+    .jackpot-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+    .jackpot-line{stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 6px 20px rgba(8,200,150,0.18));}
+    .jackpot-glow{filter:blur(6px);opacity:0.85}
+    .jackpot-trail{opacity:0.55;pointer-events:none;transition:opacity 300ms ease}
+    /* Game over overlay */
+    .game-over{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition:opacity .28s ease;z-index:3000}
+    .game-over.show{opacity:1;pointer-events:auto}
+    .game-over .card{background:linear-gradient(180deg, rgba(0,0,0,0.6), rgba(0,0,0,0.5));border-radius:12px;padding:28px 36px;text-align:center;border:1px solid rgba(255,255,255,0.04);box-shadow:0 10px 40px rgba(0,0,0,0.6);transform:translateY(0)}
+    .game-over .title{font-size:48px;font-weight:900;color:#ff6b6b;text-shadow:0 10px 40px rgba(255,80,80,0.12);letter-spacing:1px}
+    .game-over .subtitle{margin-top:8px;color:var(--muted);font-size:14px}
+    @keyframes go-bounce{0%{transform:scale(.86) translateY(-6px);opacity:0}60%{transform:scale(1.04) translateY(2px);opacity:1}100%{transform:scale(1) translateY(0);opacity:1}}
+    .game-over.show .card{animation:go-bounce .6s cubic-bezier(.2,.9,.25,1) forwards}
+    .game-over .blink{display:inline-block;background:rgba(255,255,255,0.06);padding:.2em .6em;border-radius:8px;margin-left:8px}
+
     /* Icons & animations */
     .mark svg{width:42px;height:42px;display:block}
     .cell.animate-pop{animation:pop .26s ease forwards}
@@ -99,6 +114,13 @@
     </div>
 
     <div class="msg" id="message">Spiel startet mit 50 coins.</div>
+    <!-- Game Over Overlay -->
+    <div id="gameOverOverlay" class="game-over" aria-hidden="true">
+      <div class="card" role="alert">
+        <div class="title">Game Over</div>
+        <div class="subtitle">Du hast alle Coins verloren. Neues Spiel startet gleich <span class="blink">…</span></div>
+      </div>
+    </div>
 
     <!-- Settings Modal -->
     <div class="modal" id="settingsModal" aria-hidden="true">
@@ -179,6 +201,9 @@
     let selecting = true; // player may select fields
     let lastDrawn = []; // indices (0-based) the computer drew in the last round
     let isMouseDown = false;
+    let touchMode = null; // 'select' | 'deselect' | null
+    let lastTouchedIndex = null;
+    let suppressClickIndex = null; // when mousedown already selected the first cell, ignore the following click
     let autoAdvanceTimer = null; // timer for auto-advance after draw
     // Settings-controlled timers & flags
     let autoAdvanceEnabled = true; // default: auto-advance active
@@ -186,6 +211,8 @@
     let autoConfirmEnabled = false; // default: auto-confirm off
     let autoConfirmDuration = 5; // seconds default
     let autoConfirmTimer = null;
+    let overlayResetTimer = null;
+    let overlayCountdownInterval = null;
     const X_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><g stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M4 4l16 16"></path><path d="M20 4L4 20"></path></g></svg>`;
 
     // Settings DOM bindings
@@ -271,10 +298,18 @@
           if(isMouseDown && selecting){ setCellToPlayer(idx); }
         });
 
-        // touch-friendly: tap toggles selection (allow deselect on mobile), touchmove selects while dragging
-        el.addEventListener('touchstart', (e)=>{ if(!selecting) return; e.preventDefault(); onCellClick(idx); });
+        // touch-friendly: tap toggles selection (allow deselect on mobile), touchmove selects/deselects while swiping
+        el.addEventListener('touchstart', (e)=>{
+          if(!selecting) return; e.preventDefault();
+          const status = board[idx] && board[idx].status;
+          if(status === 'free') touchMode = 'select';
+          else if(status === 'player') touchMode = 'deselect';
+          else touchMode = null;
+          lastTouchedIndex = null;
+          if(touchMode) setCellToMode(idx, touchMode);
+        });
         el.addEventListener('touchmove', (e)=>{
-          if(!selecting) return; e.preventDefault(); const t = e.touches[0]; const target = document.elementFromPoint(t.clientX, t.clientY); if(target){ const cellEl = target.closest('.cell'); if(cellEl) setCellToPlayer(Number(cellEl.dataset.index)); }
+          if(!selecting) return; e.preventDefault(); const t = e.touches[0]; const target = document.elementFromPoint(t.clientX, t.clientY); if(target){ const cellEl = target.closest('.cell'); if(cellEl){ const i = Number(cellEl.dataset.index); if(i !== lastTouchedIndex){ lastTouchedIndex = i; if(touchMode) setCellToMode(i, touchMode); } } }
         }, {passive:false});
 
         boardEl.appendChild(el);
@@ -282,21 +317,35 @@
     }
 
     function setCellToPlayer(idx){
+      // backward-compat wrapper
+      setCellToMode(idx, 'select');
+    }
+
+    // set a cell to a mode: 'select' or 'deselect'
+    function setCellToMode(idx, mode){
       const cell = board[idx];
       if(!cell) return;
-      if(cell.status === 'free'){
+      if(mode === 'select'){
+        if(cell.status !== 'free') return;
         const current = getPlayerCount();
         const maxAllowed = getMaxSelectableFields();
         if(current >= maxAllowed) return;
         cell.status = 'player';
         const el = boardEl.querySelector(`[data-index='${idx}']`);
         if(el){ el.className = 'cell player'; const mark = el.querySelector('.mark'); if(mark) mark.innerHTML = X_SVG; }
-        // reset auto-confirm countdown on any selection change
+        resetAutoConfirmTimer();
+      } else if(mode === 'deselect'){
+        if(cell.status !== 'player') return;
+        cell.status = 'free';
+        const el = boardEl.querySelector(`[data-index='${idx}']`);
+        if(el){ el.className = 'cell empty'; const mark = el.querySelector('.mark'); if(mark) mark.innerHTML = ''; }
         resetAutoConfirmTimer();
       }
     }
 
     function onCellClick(idx){
+      // ignore the click if it immediately follows a mousedown that already selected this cell
+      if(suppressClickIndex === idx){ suppressClickIndex = null; return; }
       if(!selecting){ showMessage('Runde läuft — warte bis der Computer gezogen hat.'); return; }
       const cell = board[idx];
       const maxAllowed = getMaxSelectableFields();
@@ -319,9 +368,41 @@
     function checkGameOver(){
       if(coins <= 0){
         showMessage('Verloren — Neues Spiel startet...');
-        setTimeout(()=>{
+        const overlay = document.getElementById('gameOverOverlay');
+        const subtitle = overlay && overlay.querySelector('.subtitle');
+
+        const doReset = ()=>{
+          if(overlayResetTimer){ clearTimeout(overlayResetTimer); overlayResetTimer = null; }
+          if(overlayCountdownInterval){ clearInterval(overlayCountdownInterval); overlayCountdownInterval = null; }
+          if(overlay){ overlay.classList.remove('show'); overlay.setAttribute('aria-hidden','true'); }
           coins = START_COINS; updateCoins(); initBoard(); selecting = true; nextBtn.style.display = 'none';
-        }, 1200);
+        };
+
+        if(overlay){
+          overlay.classList.add('show'); overlay.setAttribute('aria-hidden','false');
+          // clicking overlay resets immediately
+          overlay.addEventListener('click', ()=>{ doReset(); }, {once:true});
+
+          if(autoAdvanceEnabled){
+            // show countdown text and auto-reset after chosen duration
+            let remaining = Math.max(1, Math.floor(autoAdvanceDuration));
+            if(subtitle) subtitle.textContent = `Du hast alle Coins verloren. Neues Spiel startet in ${remaining} s — oder klicke zum sofortigen Start.`;
+            overlayCountdownInterval = setInterval(()=>{
+              remaining -= 1;
+              if(remaining <= 0){
+                clearInterval(overlayCountdownInterval); overlayCountdownInterval = null;
+              } else {
+                if(subtitle) subtitle.textContent = `Du hast alle Coins verloren. Neues Spiel startet in ${remaining} s — oder klicke zum sofortigen Start.`;
+              }
+            }, 1000);
+            overlayResetTimer = setTimeout(()=>{ doReset(); }, autoAdvanceDuration * 1000);
+          } else {
+            if(subtitle) subtitle.textContent = 'Du hast alle Coins verloren. Klicke zum Neustart.';
+          }
+        } else {
+          // fallback: hide overlay after short delay and reset
+          setTimeout(()=>{ coins = START_COINS; updateCoins(); initBoard(); selecting = true; nextBtn.style.display = 'none'; }, 1400);
+        }
       }
     }
 
@@ -473,12 +554,111 @@
 
         playerIndicesInDrawn.forEach(i => usedPlayerIndices.add(i));
         highlightLine(playerIndicesInDrawn);
+        // animate a fancy strike-through for the entire jackpot line (all computer-drawn positions)
+        try{ animateJackpotLine(lineDrawn); }catch(e){ console.warn('jackpot animation failed', e); }
       });
     }
 
     function highlightLine(line){
       line.forEach(i => { const el = boardEl.querySelector(`[data-index='${i}']`); if(el) el.classList.add('highlight'); });
       setTimeout(()=>{ line.forEach(i => { const el = boardEl.querySelector(`[data-index='${i}']`); if(el) el.classList.remove('highlight'); }); }, 1600);
+    }
+
+    // Fancy jackpot animation: draw an animated stroked path across ALL jackpot fields
+    function animateJackpotLine(indices){
+      if(!indices || indices.length === 0) return;
+      // remove existing persistent jackpot trails to avoid clutter
+      const existing = boardEl.querySelectorAll('.jackpot-trail');
+      existing.forEach(el => { const p = el.parentNode; if(p) p.parentNode && p.parentNode.removeChild(p); });
+      const pts = indices.map(i => {
+        const el = boardEl.querySelector(`[data-index='${i}']`);
+        if(!el) return null;
+        const r = el.getBoundingClientRect();
+        return {x: r.left + r.width/2, y: r.top + r.height/2};
+      }).filter(Boolean);
+      if(pts.length < 2) return;
+
+      const boardRect = boardEl.getBoundingClientRect();
+      // build path string in board-relative coordinates
+      const coords = pts.map(p => `${(p.x - boardRect.left).toFixed(2)} ${(p.y - boardRect.top).toFixed(2)}`);
+      const d = 'M ' + coords.join(' L ');
+
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS,'svg'); svg.setAttribute('class','jackpot-svg'); svg.setAttribute('viewBox', `0 0 ${Math.round(boardRect.width)} ${Math.round(boardRect.height)}`);
+      svg.style.width = boardRect.width + 'px'; svg.style.height = boardRect.height + 'px';
+
+      // defs: gradient
+      const defs = document.createElementNS(svgNS,'defs');
+      const gradId = 'g' + Date.now();
+      const grad = document.createElementNS(svgNS,'linearGradient'); grad.id = gradId; grad.setAttribute('x1','0'); grad.setAttribute('y1','0'); grad.setAttribute('x2','1'); grad.setAttribute('y2','0');
+      const s1 = document.createElementNS(svgNS,'stop'); s1.setAttribute('offset','0%'); s1.setAttribute('stop-color','#06b6d4');
+      const s2 = document.createElementNS(svgNS,'stop'); s2.setAttribute('offset','50%'); s2.setAttribute('stop-color','#10b981');
+      const s3 = document.createElementNS(svgNS,'stop'); s3.setAttribute('offset','100%'); s3.setAttribute('stop-color','#34d399');
+      grad.appendChild(s1); grad.appendChild(s2); grad.appendChild(s3); defs.appendChild(grad);
+      svg.appendChild(defs);
+
+      // wide glow path
+      const glowPath = document.createElementNS(svgNS,'path');
+      glowPath.setAttribute('d', d); glowPath.setAttribute('fill','none'); glowPath.setAttribute('stroke', `url(#${gradId})`);
+      glowPath.setAttribute('stroke-width','18'); glowPath.setAttribute('stroke-linecap','round'); glowPath.setAttribute('stroke-linejoin','round'); glowPath.setAttribute('class','jackpot-line jackpot-glow');
+      glowPath.style.opacity = '0.9';
+      svg.appendChild(glowPath);
+
+      // main path
+      const mainPath = document.createElementNS(svgNS,'path');
+      mainPath.setAttribute('d', d); mainPath.setAttribute('fill','none'); mainPath.setAttribute('stroke', `url(#${gradId})`);
+      mainPath.setAttribute('stroke-width','10'); mainPath.setAttribute('stroke-linecap','round'); mainPath.setAttribute('stroke-linejoin','round'); mainPath.setAttribute('class','jackpot-line');
+      mainPath.style.transition = 'stroke-dashoffset 800ms cubic-bezier(.2,.9,.25,1), opacity 450ms ease';
+      svg.appendChild(mainPath);
+
+      // moving sparkle (circle) that follows the path
+      const sparkle = document.createElementNS(svgNS,'circle'); sparkle.setAttribute('r','6'); sparkle.setAttribute('fill','#fff'); sparkle.setAttribute('opacity','0.95');
+      svg.appendChild(sparkle);
+
+      // append svg to board
+      boardEl.style.position = boardEl.style.position || 'relative';
+      boardEl.appendChild(svg);
+
+      // path animation via dasharray
+      const len = mainPath.getTotalLength();
+      mainPath.style.strokeDasharray = len; mainPath.style.strokeDashoffset = len;
+      glowPath.style.strokeDasharray = len; glowPath.style.strokeDashoffset = len;
+
+      // animate dash to draw (trail will remain afterwards)
+      requestAnimationFrame(()=>{ mainPath.style.strokeDashoffset = 0; glowPath.style.strokeDashoffset = 0; });
+
+      // animate sparkle along path using getPointAtLength
+      const duration = 1400; // ms
+      let start = null;
+      function step(ts){
+        if(start === null) start = ts;
+        const t = Math.min(1, (ts - start) / duration);
+        const pos = mainPath.getPointAtLength(len * t);
+        sparkle.setAttribute('cx', pos.x); sparkle.setAttribute('cy', pos.y);
+        sparkle.setAttribute('r', 6 + Math.sin(t * Math.PI) * 3);
+        if(t < 1) window.requestAnimationFrame(step);
+      }
+      window.requestAnimationFrame(step);
+
+      // pulse glow while visible
+      glowPath.animate([{opacity:0.95},{opacity:0.5},{opacity:0.95}], {duration:900, iterations:2, easing:'ease-in-out'});
+
+      // After the draw animation completes, keep the mainPath as a semi-transparent permanent trail
+      setTimeout(()=>{
+        try{
+          // make trail semi-transparent and persistent
+          mainPath.style.transition = '';
+          mainPath.style.strokeDasharray = 'none';
+          mainPath.style.strokeDashoffset = 0;
+          mainPath.setAttribute('opacity', '0.55');
+          mainPath.classList.add('jackpot-trail');
+
+          // remove ephemeral elements (glow & sparkle) but leave the trail
+          if(glowPath && glowPath.parentNode) glowPath.parentNode.removeChild(glowPath);
+          if(sparkle && sparkle.parentNode) sparkle.parentNode.removeChild(sparkle);
+          // keep defs (gradient) since mainPath references it
+        }catch(e){ /* ignore */ }
+      }, duration + 120);
     }
 
     // Dev helper: force a specific draw from the console for testing.
@@ -508,10 +688,18 @@
       if(e.button !== undefined && e.button !== 0) return;
       isMouseDown = true; e.preventDefault();
       const cellEl = e.target.closest && e.target.closest('.cell');
-      if(cellEl){ const idx = Number(cellEl.dataset.index); if(!Number.isNaN(idx)) setCellToPlayer(idx); }
+      if(cellEl){ const idx = Number(cellEl.dataset.index); if(!Number.isNaN(idx)){
+        // only auto-select on mousedown if the cell was previously free
+        const before = board[idx] && board[idx].status;
+        if(before === 'free'){ setCellToPlayer(idx); suppressClickIndex = idx; setTimeout(()=>{ if(suppressClickIndex === idx) suppressClickIndex = null; }, 350); }
+      } }
     });
     window.addEventListener('mouseup', ()=>{ isMouseDown = false; });
     boardEl.addEventListener('dragstart', (e)=> e.preventDefault());
+
+    // clear touch mode on end/cancel
+    window.addEventListener('touchend', ()=>{ touchMode = null; lastTouchedIndex = null; });
+    window.addEventListener('touchcancel', ()=>{ touchMode = null; lastTouchedIndex = null; });
 
     // init
     initBoard(); updateCoins();
